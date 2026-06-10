@@ -1,5 +1,14 @@
-<!-- Keep a Changelog guide -> https://keepachangelog.com -->
+## [1.0.2]
 
-# ImageBoard Changelog
+### Added
+- Mouse wheel zoom synchronized with slider
+- Image viewer with empty state ("No images")
+- Improved image navigation
 
-## [Unreleased]
+### Fixed
+- Bug where the last image was not visually removed
+- Inconsistent state when clearing the image list
+- Empty render without fallback UI
+
+### Changed
+- Simplified tool window UI

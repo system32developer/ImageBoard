@@ -7,15 +7,14 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.content.ContentFactory
 import java.awt.BorderLayout
-import java.awt.Image
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
 import java.io.File
 import javax.swing.*
 
 class ImageBoardToolWindowFactory : ToolWindowFactory {
 
-    override fun shouldBeAvailable(project: Project): Boolean = true
+    override fun shouldBeAvailable(project: Project) = true
+
+    var internalChange = false
 
     override fun createToolWindowContent(
         project: Project,
@@ -24,191 +23,143 @@ class ImageBoardToolWindowFactory : ToolWindowFactory {
 
         val settings = ImageBoardSettings.getInstance()
 
-        settings.getImages().removeIf {
-            !File(it).exists()
-        }
+        settings.getImages().removeIf { !File(it).exists() }
 
         val panel = JPanel(BorderLayout())
 
+        val imagePanel = ZoomableImagePanel()
+
         var currentIndex = 0
 
-        val imageLabel = JLabel(
-            "No Images",
-            SwingConstants.CENTER
-        )
+        val prev = JButton("◀")
+        val next = JButton("▶")
+        val add = JButton("+")
+        val remove = JButton("-")
 
-        val previousButton = JButton("◀")
-        val nextButton = JButton("▶")
-        val addButton = JButton("+")
-        val removeButton = JButton("-")
+        val zoomSlider = JSlider(10, 300, 100)
 
-        fun refreshImage() {
+        imagePanel.setZoomListener { zoom ->
+            internalChange = true
+            zoomSlider.value = (zoom * 100).toInt()
+            internalChange = false
+        }
 
-            val images = settings.getImages()
+        fun refresh() {
 
-            if (images.isEmpty()) {
+            val list = settings.getImages()
 
-                imageLabel.icon = null
-                imageLabel.text = "No Images"
+            if (list.isEmpty()) {
+                imagePanel.resetZoom()
+                imagePanel.clearImage()
 
-                previousButton.isEnabled = false
-                nextButton.isEnabled = false
-                removeButton.isEnabled = false
+                prev.isEnabled = false
+                next.isEnabled = false
+                remove.isEnabled = false
 
+                currentIndex = 0
                 return
             }
 
-            removeButton.isEnabled = true
-
-            if (currentIndex >= images.size) {
-                currentIndex = images.lastIndex
+            if (currentIndex >= list.size) {
+                currentIndex = list.lastIndex
             }
 
-            val path = images[currentIndex]
+            val path = list[currentIndex]
 
-            val file = File(path)
-
-            if (!file.exists()) {
-
+            if (!File(path).exists()) {
                 settings.removeImage(path)
-
-                refreshImage()
-
+                refresh()
                 return
             }
 
-            val icon = ImageIcon(path)
+            imagePanel.setImage(path)
 
-            imageLabel.text = ""
-
-            imageLabel.icon = ImageIcon(
-                icon.image.getScaledInstance(
-                    500,
-                    500,
-                    Image.SCALE_SMOOTH
-                )
-            )
-
-            previousButton.isEnabled =
-                currentIndex > 0
-
-            nextButton.isEnabled =
-                currentIndex < images.lastIndex
+            prev.isEnabled = currentIndex > 0
+            next.isEnabled = currentIndex < list.lastIndex
+            remove.isEnabled = true
         }
 
-        previousButton.addActionListener {
-
+        prev.addActionListener {
             if (currentIndex > 0) {
-
                 currentIndex--
-
-                refreshImage()
+                refresh()
             }
         }
 
-        nextButton.addActionListener {
-
-            if (currentIndex <
-                settings.getImages().lastIndex
-            ) {
-
+        next.addActionListener {
+            if (currentIndex < settings.getImages().lastIndex) {
                 currentIndex++
-
-                refreshImage()
+                refresh()
             }
         }
 
-        addButton.addActionListener {
+        add.addActionListener {
 
-            val descriptor = FileChooserDescriptor(
-                true,
-                false,
-                false,
-                false,
-                false,
-                false
+            val desc = FileChooserDescriptor(
+                true, false, false,
+                false, false, false
             )
 
-            descriptor.title = "Select Image"
-
-            val file = FileChooser.chooseFile(
-                descriptor,
-                project,
-                null
-            ) ?: return@addActionListener
+            val file = FileChooser.chooseFile(desc, project, null)
+                ?: return@addActionListener
 
             settings.addImage(file.path)
 
-            currentIndex =
-                settings.getImages().lastIndex
+            currentIndex = settings.getImages().lastIndex
 
-            refreshImage()
+            refresh()
         }
 
-        removeButton.addActionListener {
+        remove.addActionListener {
 
-            val images = settings.getImages()
+            val list = settings.getImages()
 
-            if (images.isEmpty()) {
+            if (list.isEmpty()) return@addActionListener
+
+            list.removeAt(currentIndex)
+
+            if (list.isEmpty()) {
+                currentIndex = 0
+                imagePanel.clearImage()
+                refresh()
                 return@addActionListener
             }
 
-            images.removeAt(currentIndex)
-
-            if (currentIndex >= images.size) {
-                currentIndex =
-                    maxOf(0, images.size - 1)
+            if (currentIndex >= list.size) {
+                currentIndex = list.lastIndex
             }
 
-            refreshImage()
+            refresh()
         }
 
-        imageLabel.addMouseListener(
-            object : MouseAdapter() {
+        zoomSlider.addChangeListener {
+            if (internalChange) return@addChangeListener
 
-                override fun mouseClicked(
-                    e: MouseEvent
-                ) {
+            val zoom = zoomSlider.value / 100.0
+            imagePanel.setZoom(zoom)
+        }
 
-                    if (e.clickCount != 2) {
-                        return
-                    }
+        val navControls = JPanel()
+        navControls.add(prev)
+        navControls.add(next)
+        navControls.add(add)
+        navControls.add(remove)
 
-                    val images =
-                        settings.getImages()
+        val zoomControls = JPanel()
+        zoomControls.add(JLabel("Zoom"))
+        zoomControls.add(zoomSlider)
 
-                    if (images.isEmpty()) {
-                        return
-                    }
+        val bottom = JPanel()
+        bottom.layout = BoxLayout(bottom, BoxLayout.Y_AXIS)
+        bottom.add(navControls)
+        bottom.add(zoomControls)
 
-                    ImageViewerDialog(
-                        images[currentIndex]
-                    ).show()
-                }
-            }
-        )
+        panel.add(imagePanel, BorderLayout.CENTER)
+        panel.add(bottom, BorderLayout.SOUTH)
 
-        val controls = JPanel()
+        refresh()
 
-        controls.add(previousButton)
-        controls.add(addButton)
-        controls.add(removeButton)
-        controls.add(nextButton)
-
-        panel.add(
-            JScrollPane(imageLabel),
-            BorderLayout.CENTER
-        )
-
-        panel.add(
-            controls,
-            BorderLayout.SOUTH
-        )
-
-        refreshImage()
-
-        val content = ContentFactory
-            .getInstance()
+        val content = ContentFactory.getInstance()
             .createContent(panel, "", false)
 
         toolWindow.contentManager.addContent(content)
